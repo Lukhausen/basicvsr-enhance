@@ -29,37 +29,50 @@ def main():
     args = parse_args()
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
 
-    # load config & prepare model args
+    # --- build model ---
     cfg = Config.fromfile(args.config)
     mcfg = cfg.model.copy()
-    mcfg.pop('type', None)  # strip the MMEditing "type" key
+    mcfg.pop('type', None)  # drop the config's 'type' key
 
-    # build & load
     model = BasicVSRPlusPlus(**mcfg)
     load_checkpoint(model, args.checkpoint, map_location=device)
     model.to(device).eval()
 
-    # read input frames
+    # --- load & convert frames ---
     files = sorted(f for f in os.listdir(args.input_folder)
                    if f.lower().endswith(('.png','jpg','jpeg')))
-    imgs = [cv2.imread(os.path.join(args.input_folder, f),
-                       cv2.IMREAD_COLOR)[..., ::-1] for f in files]
+    imgs = []
+    for fname in files:
+        bgr = cv2.imread(os.path.join(args.input_folder, fname),
+                         cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise FileNotFoundError(f"cannot read {fname}")
+        # convert to RGB *without* negative‐stride slicing
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        imgs.append(rgb)
 
-    # to tensors
-    seq = [img2tensor(im, bgr2rgb=False, float32=True)
-           .unsqueeze(0).to(device) for im in imgs]
+    # --- to tensors ---
+    seq = [
+        img2tensor(im, bgr2rgb=False, float32=True)
+        .unsqueeze(0).to(device)
+        for im in imgs
+    ]
 
-    # forward & grab central output
+    # --- inference & pick central frame ---
     with torch.no_grad():
         out_seq = model(seq)                 # (T, C, H, W)
         mid = out_seq.size(0) // 2
-        out_img = tensor2img(out_seq[mid].cpu(),
-                             rgb2bgr=False,
-                             out_type=np.uint8)
+        out_img = tensor2img(
+            out_seq[mid].cpu(),
+            rgb2bgr=False,
+            out_type=np.uint8
+        )
 
-    # save
+    # --- save result ---
     os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
-    cv2.imwrite(args.output_path, out_img[..., ::-1])
+    # convert back to BGR for OpenCV
+    bgr_out = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(args.output_path, bgr_out)
     print(f"✔️  saved → {args.output_path}")
 
 if __name__ == '__main__':
