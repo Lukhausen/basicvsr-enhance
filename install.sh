@@ -25,9 +25,14 @@ echo "Installing mmcv-full..."
 mim install mmcv-full
 
 # 7. Clone BasicVSR++ repository and install as editable package
+
 echo "Cloning mmediting..."
 git clone https://github.com/open-mmlab/mmediting.git
 cd mmediting
+# Install editable without build isolation so torch is available during build
+echo "Installing mmediting in editable mode (no build isolation)..."
+pip install --no-build-isolation -v -e .
+cd ..
 pip install -v -e .
 cd ..
 
