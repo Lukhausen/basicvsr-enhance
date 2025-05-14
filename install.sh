@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Installation script for BasicVSR++ environment on Ubuntu
+# Installation script for BasicVSR++ environment (Docker/container friendly)
 set -e
 
-# 1. Update and install system dependencies
-sudo apt-get update
-sudo apt-get install -y git wget python3-pip python3-venv
+# 1. Install system dependencies (without sudo for Docker)
+apt-get update && \
+apt-get install -y git wget python3-pip python3-venv
 
 # 2. Create and activate a virtual environment
 python3 -m venv vsrenv
@@ -20,7 +20,7 @@ mim install mmcv-full
 # 5. Clone BasicVSR++ and install as editable package
 git clone https://github.com/open-mmlab/mmediting.git
 cd mmediting
-pip install -v -e .  # installs mmediting, mmcv, etc.
+pip install -v -e .
 cd ..
 
 # 6. Download pretrained BasicVSR++ weights
