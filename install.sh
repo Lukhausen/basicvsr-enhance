@@ -37,4 +37,4 @@ basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth
 
 echo
 echo "✅  setup complete!"
-echo "   source venv/bin/activate" 
+echo "   source venv/bin/activate"
