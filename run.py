@@ -30,55 +30,68 @@ def parse_args():
 
 def main():
     args = parse_args()
-    # Validate config file
-    if not os.path.isfile(args.config):
-        sys.exit(f"❌ Config file not found: {args.config}")
 
+    # 1) Validate config + checkpoint
+    if not os.path.isfile(args.config):
+        sys.exit(f"❌ Config not found: {args.config}")
+    if not os.path.isfile(args.checkpoint):
+        sys.exit(f"❌ Checkpoint not found: {args.checkpoint}")
+
+    # 2) Device
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
 
-    # Load model
+    # 3) Load config and model
     cfg = Config.fromfile(args.config)
-    model = BasicVSRPlusPlus(**cfg.model)
+    model_cfg = dict(cfg.model)          # shallow copy
+    model_cfg.pop('type', None)          # remove the 'type' key
+    model = BasicVSRPlusPlus(**model_cfg)
     load_checkpoint(model, args.checkpoint, map_location=device)
     model.to(device).eval()
 
-    # Read & sort frames
+    # 4) Gather input frames
     files = sorted(
         f for f in os.listdir(args.input_folder)
         if f.lower().endswith(('.png','jpg','jpeg')))
     if not files:
         sys.exit(f"❌ No images found in {args.input_folder}")
 
-    # Load BGR images → convert to RGB
+    # 5) Read & convert to RGB
     imgs = []
-    for f in files:
-        im = cv2.imread(os.path.join(args.input_folder, f), cv2.IMREAD_COLOR)
-        if im is None:
-            sys.exit(f"❌ Failed to read image: {f}")
-        imgs.append(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
+    for fn in files:
+        im_bgr = cv2.imread(os.path.join(args.input_folder, fn),
+                            cv2.IMREAD_COLOR)
+        if im_bgr is None:
+            sys.exit(f"❌ Failed to read {fn}")
+        imgs.append(cv2.cvtColor(im_bgr, cv2.COLOR_BGR2RGB))
 
-    # Stack → [T, H, W, 3]
+    # 6) Stack into numpy array [T, H, W, 3]
     arr = np.stack(imgs, axis=0)
 
-    # → tensor [1, T, 3, H, W], float, normalized to [0,1]
-    t = torch.from_numpy(arr).permute(0,3,1,2).unsqueeze(0).float().to(device) / 255.0
+    # 7) To tensor [1, T, C, H, W] normalized to [0,1]
+    tensor = (
+        torch.from_numpy(arr)
+             .permute(0,3,1,2)
+             .unsqueeze(0)
+             .float()
+             .to(device)
+        / 255.0
+    )
 
-    # Inference
+    # 8) Run inference
     with torch.no_grad():
-        out = model(t)         # [1, T, C, H, W]
-    mid = out.size(1) // 2     # central frame index
-    frame = out[0, mid]        # [C, H, W]
+        out = model(tensor)         # [1, T, C, H, W]
+    mid = out.size(1) // 2          # central frame index
+    frame = out[0, mid]             # [C, H, W]
 
-    # Denormalize & convert back to BGR
+    # 9) Denormalize & convert back to BGR
     img = frame.permute(1,2,0).cpu().numpy()
     img = np.clip(img * 255.0, 0, 255).astype(np.uint8)
-    bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    out_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-    # Save
+    # 10) Save result
     os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
-    success = cv2.imwrite(args.output_path, bgr)
-    if not success:
-        sys.exit(f"❌ Failed to write output to {args.output_path}")
+    if not cv2.imwrite(args.output_path, out_bgr):
+        sys.exit(f"❌ Failed to write {args.output_path}")
     print(f"✔️  Saved enhanced frame to {args.output_path}")
 
 if __name__ == '__main__':
