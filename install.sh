@@ -20,10 +20,16 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu117
 pip install basicsr
 
 # 6. Install OpenMIM and mmcv-full (for config utilities)
+
 pip install openmim
 mim install mmcv-full
 
-# 7. Download pretrained BasicVSR++ weights
+# 7. Install MMEngine (required by BasicVSR++ runner)
+
+pip install mmengine
+
+# 8. Download pretrained BasicVSR++ weights
+
 mkdir -p checkpoints
 wget -O checkpoints/basicvsr_plusplus_reds4.pth \
     https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth
