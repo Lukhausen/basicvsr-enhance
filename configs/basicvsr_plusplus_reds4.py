@@ -1,6 +1,6 @@
 # configs/basicvsr_plusplus_reds4.py
 
-_base_ = ['_base_/models/basicvsr_plusplus.py']
+_base_ = ['../_base_/models/basicvsr_plusplus.py']
 
 model = dict(
     type='BasicVSRPlusPlus',
