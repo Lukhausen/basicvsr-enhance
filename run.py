@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import argparse
 
 import cv2
@@ -18,7 +19,7 @@ def parse_args():
     parser.add_argument('--output_path',   type=str, required=True,
                         help='Where to save the enhanced central frame')
     parser.add_argument('--config',        type=str,
-                        default='configs/restorers/basicvsr_plusplus_reds4.py',
+                        default='configs/basicvsr_plusplus_reds4.py',
                         help='Path to model config file')
     parser.add_argument('--checkpoint',    type=str,
                         default='checkpoints/basicvsr_plusplus_reds4.pth',
@@ -29,6 +30,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    # Validate config file
+    if not os.path.isfile(args.config):
+        sys.exit(f"❌ Config file not found: {args.config}")
+
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
 
     # Load model
@@ -42,19 +47,21 @@ def main():
         f for f in os.listdir(args.input_folder)
         if f.lower().endswith(('.png','jpg','jpeg')))
     if not files:
-        raise RuntimeError(f"No images in {args.input_folder}")
-    imgs_bgr = [
-        cv2.imread(os.path.join(args.input_folder, f), cv2.IMREAD_COLOR)
-        for f in files
-    ]
+        sys.exit(f"❌ No images found in {args.input_folder}")
 
-    # BGR → RGB, stack → [T,H,W,3]
-    imgs_rgb = [cv2.cvtColor(im, cv2.COLOR_BGR2RGB) for im in imgs_bgr]
-    arr = np.stack(imgs_rgb, axis=0)
+    # Load BGR images → convert to RGB
+    imgs = []
+    for f in files:
+        im = cv2.imread(os.path.join(args.input_folder, f), cv2.IMREAD_COLOR)
+        if im is None:
+            sys.exit(f"❌ Failed to read image: {f}")
+        imgs.append(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
 
-    # → tensor [1,T,3,H,W], float, /255
-    t = torch.from_numpy(arr).permute(0,3,1,2).unsqueeze(0).float().to(device)
-    t = t / 255.0
+    # Stack → [T, H, W, 3]
+    arr = np.stack(imgs, axis=0)
+
+    # → tensor [1, T, 3, H, W], float, normalized to [0,1]
+    t = torch.from_numpy(arr).permute(0,3,1,2).unsqueeze(0).float().to(device) / 255.0
 
     # Inference
     with torch.no_grad():
@@ -69,7 +76,9 @@ def main():
 
     # Save
     os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
-    cv2.imwrite(args.output_path, bgr)
+    success = cv2.imwrite(args.output_path, bgr)
+    if not success:
+        sys.exit(f"❌ Failed to write output to {args.output_path}")
     print(f"✔️  Saved enhanced frame to {args.output_path}")
 
 if __name__ == '__main__':
