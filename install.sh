@@ -1,40 +1,36 @@
 #!/usr/bin/env bash
-# Installation script for BasicVSR++ environment on RunPod (Docker/container friendly)
+# install.sh — BasicVSR++ 4K enhancement setup on RunPod
 set -e
 
-# 1. Install system dependencies (already root, no sudo)
+# 1) System deps (already root)
 apt-get update && \
 apt-get install -y git wget python3-pip python3-venv
 
-# 2. Create and activate a Python virtual environment
+# 2) Python venv
 python3 -m venv vsrenv
 source vsrenv/bin/activate
 
-# 3. Upgrade pip, wheel, packaging
+# 3) Core tooling
 pip install --upgrade pip wheel packaging
 
-# 4. Install PyTorch + torchvision (match CUDA in container)
+# 4) Pin NumPy for BasicSR compatibility
+pip install "numpy<2.0"
+
+# 5) PyTorch (match your container’s CUDA)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu117
 
-# 5. Install BasicSR (provides BasicVSR++ implementation)
-pip install basicsr
+# 6) BasicSR (includes BasicVSR++), MMEngine, OpenMIM
+pip install basicsr mmengine openmim
 
-# 6. Install OpenMIM and mmcv-full (for config utilities)
-
-pip install openmim
+# 7) MMCV for config utilities
 mim install mmcv-full
 
-# 7. Install MMEngine (required by BasicVSR++ runner)
-
-pip install mmengine
-
-# 8. Download pretrained BasicVSR++ weights
-
+# 8) Download pretrained weights
 mkdir -p checkpoints
 wget -O checkpoints/basicvsr_plusplus_reds4.pth \
-    https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth
+  https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/\
+basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth
 
-# Done
-
-echo "Installation complete! Activate environment with:
-  source vsrenv/bin/activate"
+echo
+echo "✔️  install.sh complete!"
+echo "Activate with:  source vsrenv/bin/activate"
