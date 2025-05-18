@@ -2,8 +2,8 @@
 set -e  # exit on any error
 
 echo "1. System update & prerequisites"
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y wget curl ca-certificates bzip2
+apt update && apt upgrade -y
+apt install -y wget curl ca-certificates bzip2
 
 echo "2. Install Miniconda (to /opt/miniconda3) if missing"
 if [ ! -d "/opt/miniconda3" ]; then
