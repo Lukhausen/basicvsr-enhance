@@ -24,10 +24,6 @@ eval "$(${CONDA_INSTALL_PATH}/bin/conda shell.bash hook)"
 if ! grep -q "# >>> conda initialize >>>" ~/.bashrc; then
     echo "Initializing Conda for bash..."
     conda init bash
-    # The following source is to make conda available in the current script session
-    # if conda init was just run, as it modifies .bashrc which needs to be reloaded.
-    # source ~/.bashrc # This can be problematic in non-interactive scripts.
-    # eval is generally safer for the current script.
 fi
 
 
@@ -46,7 +42,6 @@ echo "4. Installing Python packages for BasicVSR++ (Colab-inspired, pre-built wh
 pip uninstall -y torch torchvision torchaudio numpy mmcv mmcv-full mmedit mmediting || true
 
 # Install PyTorch 1.10.2+cu111 (compatible with CUDA 11.8 runtime and mmcv-full 1.4.8 wheel)
-# Wheel URL: https://download.pytorch.org/whl/cu111/torch_stable.html
 echo "Installing PyTorch 1.10.2+cu111..."
 pip install torch==1.10.2+cu111 torchvision==0.11.3+cu111 torchaudio==0.10.2+cu111 -f https://download.pytorch.org/whl/cu111/torch_stable.html
 
@@ -60,14 +55,13 @@ echo "Installing mmcv-full==1.4.8 from wheel: ${MMCV_FULL_WHEEL_URL}"
 pip install "${MMCV_FULL_WHEEL_URL}"
 INSTALLED_MMCV_FULL_VERSION="1.4.8" # We know this version
 
-# Install OpenMIM (though not strictly used for mmcv-full installation here, BasicVSR setup might use it for other things or info)
-pip install openmim==0.1.5 # Using version from Colab
+# Install OpenMIM (using version from Colab for consistency)
+pip install openmim==0.1.5
 
-# mmedit will be installed as a dependency of BasicVSR_PlusPlus via its setup.py
-
-# Verify installations (optional, for debugging)
+# Verify installations
 echo "Verifying installed package versions..."
-python -c "import torch; print(f'PyTorch version: {torch.__version__}, CUDA available: {torch.cuda.is_available()}, CUDA version: {torch.version.cuda if torch.cuda.is_available() else 'N/A'}')"
+# Corrected f-string for Python 3.9 compatibility with shell quotes
+python -c "import torch; print(f'PyTorch version: {torch.__version__}, CUDA available: {torch.cuda.is_available()}, CUDA version: {torch.version.cuda if torch.cuda.is_available() else \"N/A\"}')"
 python -c "import numpy; print(f'NumPy version: {numpy.__version__}')"
 python -c "import mmcv; print(f'MMCV (mmcv-full) version: {mmcv.__version__}')"
 
@@ -85,15 +79,17 @@ fi
 cd "${TARGET_REPO_DIR}"
 
 echo "Adjusting BasicVSR_PlusPlus setup.py for installed mmcv-full version ${INSTALLED_MMCV_FULL_VERSION}..."
-# Patch setup.py to require the mmcv-full version we just installed, overriding 'mmcv-full>=1.7.0'
 cp setup.py setup.py.bak
 sed -i.bak -E "s/'mmcv-full>=[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?'/'mmcv-full==${INSTALLED_MMCV_FULL_VERSION}'/" setup.py
-echo "Diff for setup.py after patching:"
-diff setup.py.bak setup.py || true
+# echo "Diff for setup.py after patching:" # Optional: uncomment to see the change
+# diff setup.py.bak setup.py || true
 
 
 echo "Installing BasicVSR_PlusPlus and its dependencies (like mmedit==0.14.0)..."
 pip install -v -e .
+# At this point, mmedit 0.14.0 should be installed as a dependency.
+# We can add a verification for mmedit if desired.
+python -c "import mmedit; print(f'MMEdit version: {mmedit.__version__}')"
 
 
 echo "6. Download pre-trained weights for BasicVSR++ demo"
