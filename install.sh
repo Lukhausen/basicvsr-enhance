@@ -33,17 +33,32 @@ conda activate zero
 
 echo "4. Install demo dependencies in 'zero'"
 
-# 4.1 OpenMIM & MMCV
-pip install openmim
-mim install mmcv-full
+# -----------------------------------------------------
+# 4.0  PyTorch (install BEFORE mmcv-full / mim)
+# -----------------------------------------------------
+# CUDA-12.x wheel
+pip install --quiet --no-cache-dir torch==2.2.2+cu121 torchvision==0.17.2+cu121 \
+  torchaudio==2.2.2 --index-url https://download.pytorch.org/whl/cu121
 
-# 4.2 BasicVSR++ demo
-git clone https://github.com/ckkelvinchan/BasicVSR_PlusPlus.git
+# If your image is still on CUDA-11.8, comment the line above and use:
+# pip install --quiet --no-cache-dir torch==2.2.2+cu118 torchvision==0.17.2+cu118 \
+#   torchaudio==2.2.2 --index-url https://download.pytorch.org/whl/cu118
+
+# -----------------------------------------------------
+# 4.1  OpenMIM & MMCV
+# -----------------------------------------------------
+pip install --quiet openmim
+mim install mmcv-full  # now succeeds because Torch is present
+
+# -----------------------------------------------------
+# 4.2  BasicVSR++ demo
+# -----------------------------------------------------
+git clone --depth 1 https://github.com/ckkelvinchan/BasicVSR_PlusPlus.git
 cd BasicVSR_PlusPlus
 pip install -v -e .
 mkdir -p chkpts
-wget -q \
-  https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth \
-  -O chkpts/basicvsr_plusplus_reds4.pth
+wget -q https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth \
+     -O chkpts/basicvsr_plusplus_reds4.pth
+
 
 echo "All done!  You’re ready to run BasicVSR++ demos inside the 'zero' env."
