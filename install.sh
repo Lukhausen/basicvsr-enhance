@@ -47,7 +47,7 @@ pip install torch==1.10.2+cu111 torchvision==0.11.3+cu111 torchaudio==0.10.2+cu1
 
 # Install NumPy < 2.0
 echo "Installing NumPy < 2.0..."
-pip install "numpy<2.0" --force-reinstall
+pip install "numpy<2.0" --force-reinstall # Use --force-reinstall to ensure correct version if needed
 
 # Install mmcv-full==1.4.8 (pre-compiled wheel for PyTorch 1.10.x, CUDA 11.1, Python 3.9)
 MMCV_FULL_WHEEL_URL="https://download.openmmlab.com/mmcv/dist/cu111/torch1.10.0/mmcv_full-1.4.8-cp39-cp39-manylinux1_x86_64.whl"
@@ -65,19 +65,30 @@ python -c "import numpy; print(f'NumPy version: {numpy.__version__}')"
 python -c "import mmcv; print(f'MMCV (mmcv-full) version: {mmcv.__version__}')"
 
 
-echo "5. Clone BasicVSR++ repository and prepare for install"
+# --- MODIFIED SECTION ---
+echo "5. Prepare BasicVSR++ repository for install (assumed to be already present)"
+# This script (install.sh) is expected to be in the root of 'basicvsr-enhance',
+# and 'BasicVSR_PlusPlus' is a subdirectory.
 TARGET_REPO_DIR="BasicVSR_PlusPlus"
-if [ -d "${TARGET_REPO_DIR}" ] && [ -d "${TARGET_REPO_DIR}/.git" ]; then
-    echo "${TARGET_REPO_DIR} directory already exists. Using existing."
-    (cd "${TARGET_REPO_DIR}" && git pull)
-else
-    echo "Cloning BasicVSR_PlusPlus repository..."
-    rm -rf "${TARGET_REPO_DIR}"
-    git clone https://github.com/ckkelvinchan/BasicVSR_PlusPlus.git "${TARGET_REPO_DIR}"
+
+if [ ! -d "${TARGET_REPO_DIR}" ]; then
+    echo "ERROR: The '${TARGET_REPO_DIR}' directory is missing from $(pwd)."
+    echo "This script expects '${TARGET_REPO_DIR}' to be present as it's part of the main repository clone."
+    exit 1
 fi
+
+echo "Using existing directory: ./${TARGET_REPO_DIR} (part of the main repository)"
+# No need to clone or pull, as it's assumed to be the version from Lukhausen/basicvsr-enhance.
 cd "${TARGET_REPO_DIR}"
+# --- END MODIFIED SECTION ---
+
 
 echo "Adjusting BasicVSR_PlusPlus setup.py for installed mmcv-full version ${INSTALLED_MMCV_FULL_VERSION}..."
+# Ensure setup.py exists before trying to patch it
+if [ ! -f "setup.py" ]; then
+    echo "ERROR: setup.py not found in ${TARGET_REPO_DIR}. Cannot proceed."
+    exit 1
+fi
 cp setup.py setup.py.bak
 sed -i.bak -E "s/'mmcv-full>=[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?'/'mmcv-full==${INSTALLED_MMCV_FULL_VERSION}'/" setup.py
 # echo "Diff for setup.py after patching:" # Optional: uncomment to see the change
@@ -86,12 +97,13 @@ sed -i.bak -E "s/'mmcv-full>=[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?'/'mmcv-full==${IN
 
 echo "Installing BasicVSR_PlusPlus and its dependencies (like mmedit==0.14.0)..."
 pip install -v -e .
-# At this point, mmedit 0.14.0 should be installed as a dependency.
+# At this point, mmedit (from the local BasicVSR_PlusPlus) should be installed.
 # We can add a verification for mmedit if desired.
 python -c "import mmedit; print(f'MMEdit version: {mmedit.__version__}')"
 
 
 echo "6. Download pre-trained weights for BasicVSR++ demo"
+# This section is now executed from within the TARGET_REPO_DIR (BasicVSR_PlusPlus)
 mkdir -p chkpts
 CHECKPOINT_FILE="chkpts/basicvsr_plusplus_reds4.pth"
 CHECKPOINT_URL="https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth"
@@ -101,7 +113,7 @@ if [ ! -f "${CHECKPOINT_FILE}" ]; then
 else
     echo "Checkpoint ${CHECKPOINT_FILE} already exists. Skipping download."
 fi
-cd .. # Go back to the original directory
+cd .. # Go back to the original directory (e.g., /basicvsr-enhance, where install.sh is)
 
 echo
 echo "✅ BasicVSR++ setup script finished using pre-built wheels strategy."
@@ -109,9 +121,11 @@ echo
 echo "   To activate the environment in a NEW shell:"
 echo "     eval \"\$(${CONDA_INSTALL_PATH}/bin/conda shell.bash hook)\"  # Or source ~/.bashrc if 'conda init bash' has been run"
 echo "     conda activate ${ENV_NAME}"
-echo "   Then navigate to ${TARGET_REPO_DIR} (e.g., cd ${TARGET_REPO_DIR}) to run demos."
+echo "   Then navigate to the '${TARGET_REPO_DIR}' directory (e.g., cd ${TARGET_REPO_DIR}) to run demos."
 echo "   For example, to run the video restoration demo (ensure you have an input video):"
-echo "     cp ../my_input_video.mp4 .  # Assuming your video is in the parent directory"
-echo "     python demo/restoration_video_demo.py configs/basicvsr_plusplus/basicvsr_plusplus_reds4.py chkpts/basicvsr_plusplus_reds4.pth my_input_video.mp4 results/output_video.mp4"
+echo "     (Inside ${TARGET_REPO_DIR}) cp ../my_input_video.mp4 .  # Assuming your video is in the parent directory (${PWD})"
+echo "     (Inside ${TARGET_REPO_DIR}) python demo/restoration_video_demo.py configs/basicvsr_plusplus/basicvsr_plusplus_reds4.py chkpts/basicvsr_plusplus_reds4.pth my_input_video.mp4 results/output_video.mp4"
 echo "     (For the provided 'data/demo_000' example, it expects frames in that folder, not a video file)"
-echo "     python demo/restoration_video_demo.py configs/basicvsr_plusplus/basicvsr_plusplus_reds4.py chkpts/basicvsr_plusplus_reds4.pth data/demo_000 results/demo_output_frames"
+echo "     (Inside ${TARGET_REPO_DIR}) python demo/restoration_video_demo.py configs/basicvsr_plusplus/basicvsr_plusplus_reds4.py chkpts/basicvsr_plusplus_reds4.pth data/demo_000 results/demo_output_frames"
+echo "     If you have a custom demo script like 'restoration_by_ordered_file_name.py':"
+echo "     (Inside ${TARGET_REPO_DIR}) python demo/restoration_by_ordered_file_name.py configs/basicvsr_plusplus/basicvsr_plusplus_reds4.py chkpts/basicvsr_plusplus_reds4.pth data/your_input_frames_folder results/your_output_folder"
