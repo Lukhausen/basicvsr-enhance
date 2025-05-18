@@ -1,45 +1,49 @@
 #!/usr/bin/env bash
-set -e
+set -e  # exit on any error
 
-# 1) System packages
-apt-get update
-apt-get install -y git wget python3-pip python3-venv tree
+echo "1. System update & prerequisites"
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y wget curl ca-certificates bzip2
 
-# 2) Create & enter venv
-python3 -m venv vsrenv
-source vsrenv/bin/activate
+echo "2. Install Miniconda (to /opt/miniconda3) if missing"
+if [ ! -d "/opt/miniconda3" ]; then
+  wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
+    -O ~/miniconda.sh
+  bash ~/miniconda.sh -b -p /opt/miniconda3
+  rm ~/miniconda.sh
+  # Initialize in current shell
+  eval "$(/opt/miniconda3/bin/conda shell.bash hook)"
+  conda init bash
+else
+  echo "   Miniconda already installed."
+  eval "$(/opt/miniconda3/bin/conda shell.bash hook)"
+fi
 
-# 3) Upgrade pip & wheel
-pip install --upgrade pip wheel
+echo "3. Create & activate 'zero' environment"
+if ! conda env list | grep -q '^zero'; then
+  conda create -n zero python=3.9 -y
+fi
 
-# 4) Pin NumPy to <2.0 (must come BEFORE anything that depends on it)
-pip install "numpy<2.0"
+echo "   To activate this env in any new shell, run:"
+echo "     source ~/.bashrc           # if not already done"
+echo "     conda activate zero"
 
-# 5) Install PyTorch + torchvision (match your CUDA; here cu117)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu117
+# Activate now for script-run installs
+conda activate zero
 
-# 6) Install BasicSR & core tooling
-pip install basicsr mmengine openmim
+echo "4. Install demo dependencies in 'zero'"
 
-# 7) Clone the official BasicVSR++ repository
-git clone https://github.com/open-mmlab/mmediting.git basicvsr_plusplus
+# 4.1 OpenMIM & MMCV
+pip install openmim
+mim install mmcv-full
 
-cd basicvsr_plusplus
+# 4.2 BasicVSR++ demo
+git clone https://github.com/ckkelvinchan/BasicVSR_PlusPlus.git
+cd BasicVSR_PlusPlus
+pip install -v -e .
+mkdir -p chkpts
+wget -q \
+  https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth \
+  -O chkpts/basicvsr_plusplus_reds4.pth
 
-# 8) Install runtime requirements (mmcv-full, opencv, facexlib, etc.)
-pip install -r requirements/runtime.txt
-
-# 9) *Register* the package so that `import mmedit` works
-pip install -e .
-
-# 10) Download the REDS4 pretrained weights
-mkdir -p checkpoints
-wget -qO checkpoints/basicvsr_plusplus_c64n7_8x1_600k_reds4.pth \
-  https://download.openmmlab.com/mmediting/restorers/basicvsr_plusplus/\
-basicvsr_plusplus_c64n7_8x1_600k_reds4_20210217-db622b2f.pth
-
-cd ..
-
-echo
-echo "✔️  install.sh complete!"
-echo "   Activate with: source vsrenv/bin/activate"
+echo "All done!  You’re ready to run BasicVSR++ demos inside the 'zero' env."
