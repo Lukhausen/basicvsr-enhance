@@ -5,7 +5,7 @@ echo "1. System update & prerequisites"
 apt-get update -qq
 # build-essential might still be needed if any minor dependency compiles, but major ones should be wheels
 apt-get install -y --no-install-recommends \
-        bzip2 ca-certificates curl wget git build-essential && \
+        bzip2 ca-certificates curl wget git git-lfs build-essential && \
     rm -rf /var/lib/apt/lists/*
 
 echo "2. Install Miniconda to /opt/miniconda3 (skip if already present)"
