@@ -1,9 +1,8 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import argparse
 import os
-import glob # Added
-import tempfile # Added
-import shutil # Added
+import glob # For finding files
+import shutil # For moving/renaming
 
 import cv2
 import mmcv
@@ -14,16 +13,16 @@ from mmedit.apis import init_model, restoration_video_inference
 from mmedit.core import tensor2img # Ensure this import path is correct for your mmedit version
 from mmedit.utils import modify_args
 
-VIDEO_EXTENSIONS = ('.mp4', '.mov', '.avi', '.mkv') # Made more comprehensive
-IMG_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp') # Added for frame processing
+VIDEO_EXTENSIONS = ('.mp4', '.mov', '.avi', '.mkv')
+IMG_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp')
 
 def parse_args():
     modify_args()
     parser = argparse.ArgumentParser(description='Restoration demo')
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
-    parser.add_argument('input_path', help='path to the input video or directory of image frames') # Renamed for clarity
-    parser.add_argument('output_path', help='path to the output video or directory for image frames') # Renamed for clarity
+    parser.add_argument('input_path', help='path to the input video or directory of image frames')
+    parser.add_argument('output_path', help='path to the output video or directory for image frames')
     parser.add_argument(
         '--start-idx',
         type=int,
@@ -44,6 +43,11 @@ def parse_args():
         default=None,
         help='maximum sequence length if recurrent framework is used')
     parser.add_argument('--device', type=int, default=0, help='CUDA device id')
+    parser.add_argument(
+        '--rename-back',
+        action='store_true',
+        help='Attempt to rename input files back to their original names after processing (use with caution).')
+
     args = parser.parse_args()
     return args
 
@@ -51,153 +55,193 @@ def parse_args():
 def main():
     """ Demo for video restoration models.
     Handles video file input or a directory of image frames.
+    If input_path is a directory, images within will be renamed in-place.
     """
     args = parse_args()
 
     model = init_model(
         args.config, args.checkpoint, device=torch.device('cuda', args.device))
 
-    temp_dir_manager = None
-    # These variables will hold the actual parameters passed to the inference function
-    effective_input_path = os.path.abspath(args.input_path) # Use absolute paths
+    original_filenames_map = {} # To store original names if --rename-back is used
+    effective_input_path = os.path.abspath(args.input_path)
     effective_start_idx = args.start_idx
     effective_filename_tmpl = args.filename_tmpl
+
+    is_input_dir_processed = False
 
     if os.path.isdir(effective_input_path):
         print(f"Input path '{effective_input_path}' is a directory. Scanning for image frames...")
         
         all_items_in_dir = glob.glob(os.path.join(effective_input_path, '*'))
         image_files = sorted([
-            f for f in all_items_in_dir
+            os.path.abspath(f) # Use absolute paths for original files
+            for f in all_items_in_dir
             if os.path.isfile(f) and f.lower().endswith(IMG_EXTENSIONS)
         ])
 
         if image_files:
-            print(f"Found {len(image_files)} image frames. Preparing them for inference.")
+            print(f"Found {len(image_files)} image frames. Renaming them in-place for inference.")
             
-            temp_dir_manager = tempfile.TemporaryDirectory(prefix="basicvsr_input_frames_")
-            temp_dir_abs_path = temp_dir_manager.name
-            
-            print(f"Copying and renaming frames to temporary directory: '{temp_dir_abs_path}'")
+            # --- RENAME FILES IN-PLACE ---
+            temp_renamed_files = [] # Keep track of files we renamed to attempt renaming back
             for idx, original_filepath in enumerate(image_files):
-                # Files in the temporary directory will be named according to effective_filename_tmpl, starting from 0
-                temp_file_target_name = effective_filename_tmpl.format(idx)
-                temp_file_target_path = os.path.join(temp_dir_abs_path, temp_file_target_name)
+                original_dir = os.path.dirname(original_filepath)
+                # New name based on the template, starting from index 0 for the model
+                new_filename_for_model = effective_filename_tmpl.format(idx)
+                new_filepath_for_model = os.path.join(original_dir, new_filename_for_model)
+
+                if original_filepath == new_filepath_for_model:
+                    print(f"Skipping rename for '{original_filepath}', already matches target.")
+                    original_filenames_map[new_filepath_for_model] = original_filepath # Still track for potential rename-back consistency
+                    temp_renamed_files.append(new_filepath_for_model) # Track it as if it was renamed
+                    continue
+
+                if os.path.exists(new_filepath_for_model):
+                    # This is a conflict. We should not overwrite.
+                    # For simplicity, we'll error out. More complex logic could backup the conflicting file.
+                    print(f"ERROR: Target rename path '{new_filepath_for_model}' already exists. "
+                          f"Cannot rename '{original_filepath}'. Please clear conflicting files or use a different directory.")
+                    # Attempt to revert any renames done so far if --rename-back was intended
+                    if args.rename_back and original_filenames_map:
+                        print("Attempting to revert previous renames...")
+                        for new_name, orig_name in reversed(list(original_filenames_map.items())):
+                            if new_name != orig_name and os.path.exists(new_name):
+                                try:
+                                    shutil.move(new_name, orig_name)
+                                    print(f"Reverted '{new_name}' to '{orig_name}'")
+                                except Exception as e_revert:
+                                    print(f"Failed to revert '{new_name}' to '{orig_name}': {e_revert}")
+                    return # Exit
                 
                 try:
-                    shutil.copy2(os.path.abspath(original_filepath), temp_file_target_path)
-                except Exception as e_copy:
-                    if temp_dir_manager: temp_dir_manager.cleanup()
-                    raise RuntimeError(f"Failed to copy '{original_filepath}' to '{temp_file_target_path}'. Error: {e_copy}") from e_copy
-            
-            effective_input_path = temp_dir_abs_path # Model will read from temp dir
-            effective_start_idx = 0  # Frames in temp dir are 0-indexed for the model
-            # effective_filename_tmpl is already args.filename_tmpl, which is correct for reading these newly named files.
-            print(f"Frames prepared. Model will read from '{effective_input_path}' with start_idx=0 and tmpl='{effective_filename_tmpl}'.")
+                    shutil.move(original_filepath, new_filepath_for_model)
+                    print(f"Renamed '{original_filepath}' to '{new_filepath_for_model}'")
+                    original_filenames_map[new_filepath_for_model] = original_filepath
+                    temp_renamed_files.append(new_filepath_for_model)
+                except Exception as e_rename:
+                    print(f"ERROR: Failed to rename '{original_filepath}' to '{new_filepath_for_model}'. Error: {e_rename}")
+                    # Attempt to revert any renames done so far
+                    if args.rename_back and original_filenames_map:
+                        print("Attempting to revert previous renames due to error...")
+                        for new_name, orig_name in reversed(list(original_filenames_map.items())):
+                             if new_name != orig_name and os.path.exists(new_name) and new_name not in temp_renamed_files: # only revert files not part of current failed batch
+                                try:
+                                    shutil.move(new_name, orig_name)
+                                    print(f"Reverted '{new_name}' to '{orig_name}'")
+                                except Exception as e_revert:
+                                    print(f"Failed to revert '{new_name}' to '{orig_name}': {e_revert}")
+                    return # Exit
+
+            # The model will read from the same directory, but with files named 00000000.png, etc.
+            # effective_input_path remains the same.
+            effective_start_idx = 0  # Model expects 0-indexed files based on tmpl
+            # effective_filename_tmpl is already args.filename_tmpl
+            is_input_dir_processed = True
+            print(f"Frames renamed. Model will read from '{effective_input_path}' with start_idx=0 and tmpl='{effective_filename_tmpl}'.")
         
-        elif not effective_input_path.lower().endswith(VIDEO_EXTENSIONS): # Directory, but no images, and not a video extension
-            # This case is tricky: if input_path was 'myvideo.mp4' but it's a dir, it's an error.
-            # If it was 'myframes_dir' and empty, it's an error.
-             if temp_dir_manager: temp_dir_manager.cleanup() # Should be None here anyway
+        elif not effective_input_path.lower().endswith(VIDEO_EXTENSIONS):
              raise ValueError(
                 f"Input path '{args.input_path}' is a directory but contains no supported image frames "
                 f"(supported: {IMG_EXTENSIONS}) and does not appear to be a video file path.")
-        # If it's a directory *and* ends with a video extension (e.g. "myvideo.mp4/"),
-        # it's likely an error, but the next check will catch it if it's not a file.
 
     elif not (os.path.isfile(effective_input_path) and effective_input_path.lower().endswith(VIDEO_EXTENSIONS)):
-        # Not a directory (from above) AND not a recognized video file.
-        if temp_dir_manager: temp_dir_manager.cleanup()
         raise ValueError(
             f"Input path '{args.input_path}' is not a recognized video file (supported: {VIDEO_EXTENSIONS}) "
             f"and not a directory containing processable image frames. Please check the path.")
     else:
         print(f"Input path '{effective_input_path}' is a video file. Processing directly.")
 
-
-    # Call the inference function
-    print(f"Starting inference with: input='{effective_input_path}', window_size={args.window_size}, "
-          f"start_idx={effective_start_idx}, filename_tmpl='{effective_filename_tmpl}', max_seq_len={args.max_seq_len}")
-    
-    output = restoration_video_inference(model, effective_input_path,
-                                         args.window_size, effective_start_idx,
-                                         effective_filename_tmpl, args.max_seq_len)
-    print("Inference complete.")
-
-    # Process and save output
-    output_target_abs_path = os.path.abspath(args.output_path)
-    file_extension = os.path.splitext(output_target_abs_path)[1].lower()
-
-    if file_extension in VIDEO_EXTENSIONS:  # save as video
-        output_video_parent_dir = os.path.dirname(output_target_abs_path)
-        if output_video_parent_dir: # Ensure parent directory exists for the video file
-             os.makedirs(output_video_parent_dir, exist_ok=True)
-
-        # Ensure output is (T, C, H, W) or (N, T, C, H, W) where N=1
-        if output.ndim == 5 and output.size(0) == 1:
-            output_frames_tensor = output.squeeze(0) # (T, C, H, W)
-        elif output.ndim == 4: # Already (T, C, H, W)
-            output_frames_tensor = output
-        else:
-            if temp_dir_manager: temp_dir_manager.cleanup()
-            raise ValueError(f"Unexpected output tensor dimensions from model: {output.shape}")
-
-        num_out_frames, _, h, w = output_frames_tensor.shape
+    try:
+        print(f"Starting inference with: input='{effective_input_path}', window_size={args.window_size}, "
+              f"start_idx={effective_start_idx}, filename_tmpl='{effective_filename_tmpl}', max_seq_len={args.max_seq_len}")
         
-        # Try to get FPS from input if it was a video
-        video_fps = 25 # Default FPS
-        if temp_dir_manager is None and os.path.isfile(args.input_path) and args.input_path.lower().endswith(VIDEO_EXTENSIONS):
-            try:
-                cap = cv2.VideoCapture(args.input_path)
-                fps_in = cap.get(cv2.CAP_PROP_FPS)
-                if fps_in and fps_in > 0: video_fps = fps_in
-                cap.release()
-                print(f"Using FPS from input video: {video_fps}")
-            except Exception as e_fps:
-                print(f"Warning: Could not read FPS from input video '{args.input_path}'. Defaulting to {video_fps} FPS. Error: {e_fps}")
-        
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        video_writer = cv2.VideoWriter(output_target_abs_path, fourcc, video_fps, (w, h))
-        
-        for i in range(num_out_frames):
-            img = tensor2img(output_frames_tensor[i, :, :, :]) # Pass a single frame tensor (C, H, W)
-            video_writer.write(img.astype(np.uint8))
-        # cv2.destroyAllWindows() # Generally not needed unless cv2.imshow was used
-        video_writer.release()
-        print(f"Output video saved to '{output_target_abs_path}'")
+        output = restoration_video_inference(model, effective_input_path,
+                                             args.window_size, effective_start_idx,
+                                             effective_filename_tmpl, args.max_seq_len)
+        print("Inference complete.")
 
-    else: # Save as frames
-        mmcv.mkdir_or_exist(output_target_abs_path) # Ensure output directory for frames exists
-        
-        # Ensure output is (T, C, H, W) or (N, T, C, H, W) where N=1
-        if output.ndim == 5 and output.size(0) == 1:
-            output_frames_tensor = output.squeeze(0)
-        elif output.ndim == 4:
-            output_frames_tensor = output
-        else:
-            if temp_dir_manager: temp_dir_manager.cleanup()
-            raise ValueError(f"Unexpected output tensor dimensions from model: {output.shape}")
+        output_target_abs_path = os.path.abspath(args.output_path)
+        file_extension = os.path.splitext(output_target_abs_path)[1].lower()
+
+        if file_extension in VIDEO_EXTENSIONS:
+            output_video_parent_dir = os.path.dirname(output_target_abs_path)
+            if output_video_parent_dir:
+                 os.makedirs(output_video_parent_dir, exist_ok=True)
+
+            if output.ndim == 5 and output.size(0) == 1:
+                output_frames_tensor = output.squeeze(0)
+            elif output.ndim == 4:
+                output_frames_tensor = output
+            else:
+                raise ValueError(f"Unexpected output tensor dimensions from model: {output.shape}")
+
+            num_out_frames, _, h, w = output_frames_tensor.shape
+            video_fps = 25
+            if not is_input_dir_processed and os.path.isfile(args.input_path) and args.input_path.lower().endswith(VIDEO_EXTENSIONS):
+                try:
+                    cap = cv2.VideoCapture(args.input_path)
+                    fps_in = cap.get(cv2.CAP_PROP_FPS)
+                    if fps_in and fps_in > 0: video_fps = fps_in
+                    cap.release()
+                    print(f"Using FPS from input video: {video_fps}")
+                except Exception as e_fps:
+                    print(f"Warning: Could not read FPS from input video '{args.input_path}'. Defaulting to {video_fps} FPS. Error: {e_fps}")
             
-        num_out_frames = output_frames_tensor.size(0)
-
-        print(f"Saving {num_out_frames} output frames to directory: '{output_target_abs_path}'")
-        # Use the *original* args.start_idx for numbering the output files
-        for i in range(num_out_frames):
-            output_i_tensor = output_frames_tensor[i, :, :, :] # Get the i-th frame from model output
-            img_np = tensor2img(output_i_tensor)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            video_writer = cv2.VideoWriter(output_target_abs_path, fourcc, video_fps, (w, h))
             
-            # Name output files based on the original user-specified start_idx and filename_tmpl
-            save_path_i = os.path.join(output_target_abs_path, args.filename_tmpl.format(args.start_idx + i))
-            mmcv.imwrite(img_np, save_path_i)
-        print(f"Output frames saved successfully.")
+            for i in range(num_out_frames):
+                img = tensor2img(output_frames_tensor[i, :, :, :])
+                video_writer.write(img.astype(np.uint8))
+            video_writer.release()
+            print(f"Output video saved to '{output_target_abs_path}'")
 
-    # Cleanup temporary directory if one was created
-    if temp_dir_manager:
-        try:
-            temp_dir_manager.cleanup()
-            print(f"Temporary directory '{temp_dir_manager.name}' cleaned up successfully.")
-        except Exception as e:
-            print(f"Warning: Failed to clean up temporary directory '{temp_dir_manager.name}'. Error: {e}")
+        else:
+            mmcv.mkdir_or_exist(output_target_abs_path)
+            if output.ndim == 5 and output.size(0) == 1:
+                output_frames_tensor = output.squeeze(0)
+            elif output.ndim == 4:
+                output_frames_tensor = output
+            else:
+                raise ValueError(f"Unexpected output tensor dimensions from model: {output.shape}")
+            num_out_frames = output_frames_tensor.size(0)
+            print(f"Saving {num_out_frames} output frames to directory: '{output_target_abs_path}'")
+            for i in range(num_out_frames):
+                output_i_tensor = output_frames_tensor[i, :, :, :]
+                img_np = tensor2img(output_i_tensor)
+                save_path_i = os.path.join(output_target_abs_path, args.filename_tmpl.format(args.start_idx + i))
+                mmcv.imwrite(img_np, save_path_i)
+            print(f"Output frames saved successfully.")
+
+    finally:
+        # --- RENAME FILES BACK (if applicable and requested) ---
+        if is_input_dir_processed and args.rename_back and original_filenames_map:
+            print("\nAttempting to rename input files back to their original names...")
+            # Iterate in reverse order of renaming to avoid conflicts if original names were sequential
+            # We need to ensure we're renaming the files that were actually temporarily renamed
+            renamed_during_session = list(original_filenames_map.keys())
+
+            for new_name_path in reversed(renamed_during_session):
+                original_name_path = original_filenames_map.get(new_name_path)
+                if original_name_path and new_name_path != original_name_path: # Only if a rename actually happened
+                    if os.path.exists(new_name_path):
+                        try:
+                            # Before renaming back, check if the original path is now occupied by an output file (unlikely but possible if input_dir=output_dir)
+                            if os.path.exists(original_name_path) and original_name_path not in renamed_during_session:
+                                print(f"Warning: Cannot rename '{new_name_path}' back to '{original_name_path}' because the original path is now occupied by a different file. Skipping this revert.")
+                                continue
+
+                            shutil.move(new_name_path, original_name_path)
+                            print(f"Renamed '{new_name_path}' back to '{original_name_path}'")
+                        except Exception as e_revert:
+                            print(f"ERROR: Failed to rename '{new_name_path}' back to '{original_name_path}'. Error: {e_revert}")
+                    else:
+                        print(f"Warning: Expected renamed file '{new_name_path}' not found. Cannot rename back.")
+            print("File renaming revert process finished.")
+        elif is_input_dir_processed and not args.rename_back:
+            print(f"\nInput files in '{effective_input_path}' were renamed for processing and were NOT renamed back as --rename-back was not specified.")
+            print("They are currently named like '00000000.png', '00000001.png', etc.")
+
 
 if __name__ == '__main__':
     main()
