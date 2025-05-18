@@ -60,7 +60,6 @@ pip install openmim==0.1.5
 
 # Verify installations
 echo "Verifying installed package versions..."
-# Corrected f-string for Python 3.9 compatibility with shell quotes
 python -c "import torch; print(f'PyTorch version: {torch.__version__}, CUDA available: {torch.cuda.is_available()}, CUDA version: {torch.version.cuda if torch.cuda.is_available() else \"N/A\"}')"
 python -c "import numpy; print(f'NumPy version: {numpy.__version__}')"
 python -c "import mmcv; print(f'MMCV (mmcv-full) version: {mmcv.__version__}')"
@@ -112,5 +111,7 @@ echo "     eval \"\$(${CONDA_INSTALL_PATH}/bin/conda shell.bash hook)\"  # Or so
 echo "     conda activate ${ENV_NAME}"
 echo "   Then navigate to ${TARGET_REPO_DIR} (e.g., cd ${TARGET_REPO_DIR}) to run demos."
 echo "   For example, to run the video restoration demo (ensure you have an input video):"
-echo "     cp ../my_input_video.mp4 ."
+echo "     cp ../my_input_video.mp4 .  # Assuming your video is in the parent directory"
 echo "     python demo/restoration_video_demo.py configs/basicvsr_plusplus/basicvsr_plusplus_reds4.py chkpts/basicvsr_plusplus_reds4.pth my_input_video.mp4 results/output_video.mp4"
+echo "     (For the provided 'data/demo_000' example, it expects frames in that folder, not a video file)"
+echo "     python demo/restoration_video_demo.py configs/basicvsr_plusplus/basicvsr_plusplus_reds4.py chkpts/basicvsr_plusplus_reds4.pth data/demo_000 results/demo_output_frames"
