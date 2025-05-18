@@ -1,8 +1,7 @@
-cd ..
-rm basicvsr-enhance -r
-clear
+
 git clone https://github.com/Lukhausen/basicvsr-enhance
 cd basicvsr-enhance
 bash install.sh
-tree -L 4
-python run.py --input_folder examples/input --output_path examples/output/enhanced.png
+
+python demo/restoration_by_ordered_file_name.py configs/basicvsr_plusplus_reds4.py chkpts/basicvsr_plusplus_reds4.pth data/test results/test
+
